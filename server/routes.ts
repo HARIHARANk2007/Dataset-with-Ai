@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import multer from "multer";
 import Papa from "papaparse";
-import { insertDatasetSchema } from "@shared/schema";
+import { insertDatasetSchema, insertVisualizationSchema } from "@shared/schema";
 import { analyzeDataset, answerDataQuery } from "./openai";
 
 const upload = multer({ storage: multer.memoryStorage() });
@@ -231,6 +231,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Query answer error:", error);
       res.status(500).json({ error: "Failed to answer query" });
+    }
+  });
+
+  // Get visualizations for a dataset
+  app.get("/api/datasets/:id/visualizations", async (req, res) => {
+    try {
+      const visualizations = await storage.getVisualizationsByDataset(req.params.id);
+      res.json(visualizations);
+    } catch (error) {
+      console.error("Get visualizations error:", error);
+      res.status(500).json({ error: "Failed to fetch visualizations" });
+    }
+  });
+
+  // Create a visualization
+  app.post("/api/visualizations", async (req, res) => {
+    try {
+      // Validate the request body
+      const validatedPayload = insertVisualizationSchema.parse(req.body);
+      
+      // Verify the dataset exists
+      const dataset = await storage.getDataset(validatedPayload.datasetId);
+      if (!dataset) {
+        return res.status(404).json({ error: "Dataset not found" });
+      }
+
+      const visualization = await storage.createVisualization(validatedPayload);
+
+      res.json(visualization);
+    } catch (error) {
+      console.error("Create visualization error:", error);
+      if (error instanceof Error && error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid visualization format" });
+      }
+      res.status(500).json({ error: "Failed to create visualization" });
+    }
+  });
+
+  // Delete a visualization
+  app.delete("/api/visualizations/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteVisualization(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Visualization not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Delete visualization error:", error);
+      res.status(500).json({ error: "Failed to delete visualization" });
     }
   });
 

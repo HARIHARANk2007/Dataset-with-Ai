@@ -22,8 +22,7 @@ export const datasets = pgTable("datasets", {
 export const visualizations = pgTable("visualizations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   datasetId: varchar("dataset_id").notNull(),
-  name: text("name").notNull(),
-  type: text("type").notNull(),
+  chartType: text("chart_type").notNull(),
   config: jsonb("config").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
