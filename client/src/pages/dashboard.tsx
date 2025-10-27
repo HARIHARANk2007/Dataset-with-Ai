@@ -1,29 +1,131 @@
 import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { FileUploadZone } from "@/components/file-upload-zone";
 import { MetricCard } from "@/components/metric-card";
 import { AIInsightCard } from "@/components/ai-insight-card";
 import { ChartContainer } from "@/components/chart-container";
 import { ShareModal } from "@/components/share-modal";
+import { DataPreviewTable } from "@/components/data-preview-table";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import emptyStateImg from "@assets/generated_images/Dashboard_empty_state_illustration_eb5d4745.png";
+import type { Dataset } from "@shared/schema";
 
 export default function Dashboard() {
   const [shareModalOpen, setShareModalOpen] = useState(false);
-  const [hasData, setHasData] = useState(false);
   const [chartType, setChartType] = useState<"line" | "bar" | "pie">("line");
+  const [showAllData, setShowAllData] = useState(false);
+  const { toast } = useToast();
+
+  const { data: datasets = [], isLoading } = useQuery<Dataset[]>({
+    queryKey: ["/api/datasets"],
+  });
+
+  const uploadMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch("/api/datasets/upload", {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) {
+        throw new Error("Upload failed");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/datasets"] });
+      toast({
+        title: "Upload successful",
+        description: "Your data has been uploaded and is ready for analysis",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Upload failed",
+        description: "There was an error uploading your file. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
 
   const handleFileSelect = (file: File) => {
-    console.log("File selected:", file.name);
-    setHasData(true);
+    uploadMutation.mutate(file);
   };
 
-  const mockChartData = [
-    { name: "Jan", value: 4000 },
-    { name: "Feb", value: 3000 },
-    { name: "Mar", value: 5000 },
-    { name: "Apr", value: 4500 },
-    { name: "May", value: 6000 },
-    { name: "Jun", value: 5500 },
-  ];
+  const currentDataset = datasets[0];
+  const hasData = datasets.length > 0;
+
+  // Calculate metrics from data with defensive checks
+  const calculateMetrics = () => {
+    if (!currentDataset?.data || !Array.isArray(currentDataset.data) || currentDataset.data.length === 0) {
+      return null;
+    }
+
+    const data = currentDataset.data;
+    const rowCount = data.length;
+    
+    // Ensure columns array exists
+    if (!Array.isArray(currentDataset.columns) || currentDataset.columns.length === 0) {
+      return null;
+    }
+
+    // Try to find numeric columns for metrics
+    const numericColumns = currentDataset.columns.filter(col => {
+      const firstVal = data[0]?.[col];
+      return firstVal !== undefined && firstVal !== null && !isNaN(Number(firstVal));
+    });
+
+    return {
+      rowCount,
+      columnCount: currentDataset.columns.length,
+      numericColumns: numericColumns.length,
+    };
+  };
+
+  const metrics = calculateMetrics();
+
+  // Generate chart data from dataset with validation
+  const generateChartData = () => {
+    if (!currentDataset?.data || !Array.isArray(currentDataset.data) || currentDataset.data.length === 0) {
+      return [];
+    }
+
+    if (!Array.isArray(currentDataset.columns) || currentDataset.columns.length === 0) {
+      return [];
+    }
+
+    const data = currentDataset.data.slice(0, 10);
+    
+    // Find a suitable column for labels (text/date column)
+    const labelColumn = currentDataset.columns[0];
+    
+    // Find a numeric column for values
+    const numericColumn = currentDataset.columns.find(col => {
+      const firstVal = data[0]?.[col];
+      return firstVal !== undefined && firstVal !== null && !isNaN(Number(firstVal));
+    });
+
+    if (!numericColumn || !labelColumn) {
+      return [];
+    }
+
+    return data.map((row) => ({
+      name: String(row[labelColumn] ?? "").slice(0, 10),
+      value: Number(row[numericColumn]) || 0,
+    }));
+  };
+
+  const chartData = generateChartData();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
+        <p className="text-muted-foreground">Loading...</p>
+      </div>
+    );
+  }
 
   if (!hasData) {
     return (
@@ -52,25 +154,22 @@ export default function Dashboard() {
       <div>
         <h1 className="text-3xl font-bold mb-2">Dashboard</h1>
         <p className="text-muted-foreground">
-          Overview of your data insights and visualizations
+          Analysis of {currentDataset.name}
         </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <MetricCard
-          title="Total Users"
-          value="24,563"
-          trend={{ value: 12.5, isPositive: true }}
+          title="Total Rows"
+          value={currentDataset.rowCount}
         />
         <MetricCard
-          title="Revenue"
-          value="$128.4K"
-          trend={{ value: 8.2, isPositive: true }}
+          title="Columns"
+          value={String(currentDataset.columns.length)}
         />
         <MetricCard
-          title="Conversion Rate"
-          value="3.24%"
-          trend={{ value: 2.1, isPositive: false }}
+          title="File Size"
+          value={currentDataset.fileSize}
         />
       </div>
 
@@ -78,40 +177,36 @@ export default function Dashboard() {
         <div className="space-y-4">
           <h2 className="text-lg font-semibold">AI Insights</h2>
           <AIInsightCard
-            title="Revenue Growth Accelerating"
-            description="Monthly revenue increased by 34% over the last quarter, with strongest growth in mobile."
-            confidence={92}
+            title="Data Structure Detected"
+            description={`Your dataset contains ${currentDataset.columns.length} columns and ${currentDataset.rowCount} rows with structured tabular data.`}
+            confidence={95}
             onVisualize={() => console.log("Visualize insight")}
           />
           <AIInsightCard
-            title="User Engagement Pattern"
-            description="Peak activity occurs between 2-4 PM on weekdays. Consider scheduling campaigns accordingly."
-            confidence={87}
-            onVisualize={() => console.log("Visualize insight")}
-          />
-          <AIInsightCard
-            title="Conversion Opportunity"
-            description="Users from organic search have 45% higher conversion rate than paid channels."
-            confidence={94}
-            onVisualize={() => console.log("Visualize insight")}
+            title="Column Analysis"
+            description={`Found ${metrics?.numericColumns || 0} numeric columns suitable for quantitative analysis and visualization.`}
+            confidence={88}
           />
         </div>
 
         <div className="lg:col-span-2 space-y-6">
-          <ChartContainer
-            title="Monthly Revenue Trend"
-            data={mockChartData}
-            chartType={chartType}
-            onChartTypeChange={setChartType}
-            onExport={() => console.log("Export chart")}
-            onShare={() => setShareModalOpen(true)}
-          />
-          <ChartContainer
-            title="User Growth"
-            data={mockChartData.map((d) => ({ ...d, value: d.value * 0.8 }))}
-            chartType="bar"
-            onExport={() => console.log("Export chart")}
-            onShare={() => setShareModalOpen(true)}
+          {chartData.length > 0 && (
+            <ChartContainer
+              title="Data Visualization"
+              data={chartData}
+              chartType={chartType}
+              onChartTypeChange={setChartType}
+              onExport={() => console.log("Export chart")}
+              onShare={() => setShareModalOpen(true)}
+            />
+          )}
+          <DataPreviewTable
+            data={currentDataset.data as Record<string, any>[]}
+            columns={currentDataset.columns}
+            rowCount={parseInt(currentDataset.rowCount)}
+            fileSize={currentDataset.fileSize}
+            showAll={showAllData}
+            onToggleShowAll={() => setShowAllData(!showAllData)}
           />
         </div>
       </div>

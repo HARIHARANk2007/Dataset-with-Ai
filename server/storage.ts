@@ -1,20 +1,49 @@
-import { type User, type InsertUser } from "@shared/schema";
+import {
+  type User,
+  type InsertUser,
+  type Dataset,
+  type InsertDataset,
+  type Visualization,
+  type InsertVisualization,
+  type Insight,
+  type InsertInsight,
+} from "@shared/schema";
 import { randomUUID } from "crypto";
-
-// modify the interface with any CRUD methods
-// you might need
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+
+  createDataset(dataset: InsertDataset): Promise<Dataset>;
+  getDataset(id: string): Promise<Dataset | undefined>;
+  getAllDatasets(): Promise<Dataset[]>;
+  deleteDataset(id: string): Promise<boolean>;
+
+  createVisualization(
+    visualization: InsertVisualization
+  ): Promise<Visualization>;
+  getVisualization(id: string): Promise<Visualization | undefined>;
+  getVisualizationsByDataset(datasetId: string): Promise<Visualization[]>;
+  deleteVisualization(id: string): Promise<boolean>;
+
+  createInsight(insight: InsertInsight): Promise<Insight>;
+  getInsight(id: string): Promise<Insight | undefined>;
+  getInsightsByDataset(datasetId: string): Promise<Insight[]>;
+  deleteInsight(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
   private users: Map<string, User>;
+  private datasets: Map<string, Dataset>;
+  private visualizations: Map<string, Visualization>;
+  private insights: Map<string, Insight>;
 
   constructor() {
     this.users = new Map();
+    this.datasets = new Map();
+    this.visualizations = new Map();
+    this.insights = new Map();
   }
 
   async getUser(id: string): Promise<User | undefined> {
@@ -23,7 +52,7 @@ export class MemStorage implements IStorage {
 
   async getUserByUsername(username: string): Promise<User | undefined> {
     return Array.from(this.users.values()).find(
-      (user) => user.username === username,
+      (user) => user.username === username
     );
   }
 
@@ -32,6 +61,85 @@ export class MemStorage implements IStorage {
     const user: User = { ...insertUser, id };
     this.users.set(id, user);
     return user;
+  }
+
+  async createDataset(insertDataset: InsertDataset): Promise<Dataset> {
+    const id = randomUUID();
+    const dataset: Dataset = {
+      ...insertDataset,
+      id,
+      createdAt: new Date(),
+    };
+    this.datasets.set(id, dataset);
+    return dataset;
+  }
+
+  async getDataset(id: string): Promise<Dataset | undefined> {
+    return this.datasets.get(id);
+  }
+
+  async getAllDatasets(): Promise<Dataset[]> {
+    return Array.from(this.datasets.values()).sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+    );
+  }
+
+  async deleteDataset(id: string): Promise<boolean> {
+    return this.datasets.delete(id);
+  }
+
+  async createVisualization(
+    insertVisualization: InsertVisualization
+  ): Promise<Visualization> {
+    const id = randomUUID();
+    const visualization: Visualization = {
+      ...insertVisualization,
+      id,
+      createdAt: new Date(),
+    };
+    this.visualizations.set(id, visualization);
+    return visualization;
+  }
+
+  async getVisualization(id: string): Promise<Visualization | undefined> {
+    return this.visualizations.get(id);
+  }
+
+  async getVisualizationsByDataset(
+    datasetId: string
+  ): Promise<Visualization[]> {
+    return Array.from(this.visualizations.values()).filter(
+      (v) => v.datasetId === datasetId
+    );
+  }
+
+  async deleteVisualization(id: string): Promise<boolean> {
+    return this.visualizations.delete(id);
+  }
+
+  async createInsight(insertInsight: InsertInsight): Promise<Insight> {
+    const id = randomUUID();
+    const insight: Insight = {
+      ...insertInsight,
+      id,
+      createdAt: new Date(),
+    };
+    this.insights.set(id, insight);
+    return insight;
+  }
+
+  async getInsight(id: string): Promise<Insight | undefined> {
+    return this.insights.get(id);
+  }
+
+  async getInsightsByDataset(datasetId: string): Promise<Insight[]> {
+    return Array.from(this.insights.values()).filter(
+      (i) => i.datasetId === datasetId
+    );
+  }
+
+  async deleteInsight(id: string): Promise<boolean> {
+    return this.insights.delete(id);
   }
 }
 
