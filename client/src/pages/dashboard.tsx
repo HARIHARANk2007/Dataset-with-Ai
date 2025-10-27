@@ -6,10 +6,12 @@ import { AIInsightCard } from "@/components/ai-insight-card";
 import { ChartContainer } from "@/components/chart-container";
 import { ShareModal } from "@/components/share-modal";
 import { DataPreviewTable } from "@/components/data-preview-table";
+import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Sparkles, Loader2 } from "lucide-react";
 import emptyStateImg from "@assets/generated_images/Dashboard_empty_state_illustration_eb5d4745.png";
-import type { Dataset } from "@shared/schema";
+import type { Dataset, Insight } from "@shared/schema";
 
 export default function Dashboard() {
   const [shareModalOpen, setShareModalOpen] = useState(false);
@@ -21,6 +23,13 @@ export default function Dashboard() {
     queryKey: ["/api/datasets"],
   });
 
+  const currentDataset = datasets[0];
+
+  const { data: insights = [], isLoading: insightsLoading } = useQuery<Insight[]>({
+    queryKey: ["/api/datasets", currentDataset?.id, "insights"],
+    enabled: !!currentDataset?.id,
+  });
+
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
       const formData = new FormData();
@@ -30,7 +39,8 @@ export default function Dashboard() {
         body: formData,
       });
       if (!response.ok) {
-        throw new Error("Upload failed");
+        const error = await response.json();
+        throw new Error(error.error || "Upload failed");
       }
       return response.json();
     },
@@ -41,10 +51,33 @@ export default function Dashboard() {
         description: "Your data has been uploaded and is ready for analysis",
       });
     },
-    onError: () => {
+    onError: (error: Error) => {
       toast({
         title: "Upload failed",
-        description: "There was an error uploading your file. Please try again.",
+        description: error.message || "There was an error uploading your file. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const analyzeMutation = useMutation({
+    mutationFn: async (datasetId: string) => {
+      const res = await apiRequest("POST", `/api/datasets/${datasetId}/analyze`);
+      return await res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ 
+        queryKey: ["/api/datasets", currentDataset?.id, "insights"] 
+      });
+      toast({
+        title: "Analysis complete",
+        description: "AI insights have been generated for your dataset",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Analysis failed",
+        description: "Unable to generate AI insights. Please try again.",
         variant: "destructive",
       });
     },
@@ -54,7 +87,12 @@ export default function Dashboard() {
     uploadMutation.mutate(file);
   };
 
-  const currentDataset = datasets[0];
+  const handleAnalyze = () => {
+    if (currentDataset?.id) {
+      analyzeMutation.mutate(currentDataset.id);
+    }
+  };
+
   const hasData = datasets.length > 0;
 
   // Calculate metrics from data with defensive checks
@@ -151,11 +189,30 @@ export default function Dashboard() {
 
   return (
     <div className="p-8 space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold mb-2">Dashboard</h1>
-        <p className="text-muted-foreground">
-          Analysis of {currentDataset.name}
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold mb-2">Dashboard</h1>
+          <p className="text-muted-foreground">
+            Analysis of {currentDataset.name}
+          </p>
+        </div>
+        <Button
+          onClick={handleAnalyze}
+          disabled={analyzeMutation.isPending || insights.length > 0}
+          data-testid="button-generate-insights"
+        >
+          {analyzeMutation.isPending ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Analyzing...
+            </>
+          ) : (
+            <>
+              <Sparkles className="h-4 w-4 mr-2" />
+              {insights.length > 0 ? "Insights Generated" : "Generate AI Insights"}
+            </>
+          )}
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -176,17 +233,30 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="space-y-4">
           <h2 className="text-lg font-semibold">AI Insights</h2>
-          <AIInsightCard
-            title="Data Structure Detected"
-            description={`Your dataset contains ${currentDataset.columns.length} columns and ${currentDataset.rowCount} rows with structured tabular data.`}
-            confidence={95}
-            onVisualize={() => console.log("Visualize insight")}
-          />
-          <AIInsightCard
-            title="Column Analysis"
-            description={`Found ${metrics?.numericColumns || 0} numeric columns suitable for quantitative analysis and visualization.`}
-            confidence={88}
-          />
+          {insightsLoading ? (
+            <div className="flex items-center justify-center p-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : insights.length === 0 ? (
+            <div className="text-center p-8 border-2 border-dashed rounded-lg">
+              <p className="text-sm text-muted-foreground mb-4">
+                No insights yet. Click "Generate AI Insights" to analyze your data.
+              </p>
+            </div>
+          ) : (
+            insights.map((insight) => {
+              const [title, ...descParts] = insight.content.split(": ");
+              const description = descParts.join(": ");
+              return (
+                <AIInsightCard
+                  key={insight.id}
+                  title={title || "Insight"}
+                  description={description || insight.content}
+                  confidence={parseInt(insight.confidence)}
+                />
+              );
+            })
+          )}
         </div>
 
         <div className="lg:col-span-2 space-y-6">

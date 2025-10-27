@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import multer from "multer";
 import Papa from "papaparse";
 import { insertDatasetSchema } from "@shared/schema";
+import { analyzeDataset, answerDataQuery } from "./openai";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -169,6 +170,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Get insights error:", error);
       res.status(500).json({ error: "Failed to fetch insights" });
+    }
+  });
+
+  // Generate AI insights for a dataset
+  app.post("/api/datasets/:id/analyze", async (req, res) => {
+    try {
+      const dataset = await storage.getDataset(req.params.id);
+      if (!dataset) {
+        return res.status(404).json({ error: "Dataset not found" });
+      }
+
+      // Generate AI insights
+      const analysis = await analyzeDataset(
+        dataset.data as Record<string, any>[],
+        dataset.columns
+      );
+
+      // Store insights
+      const storedInsights = await Promise.all(
+        analysis.insights.map((insight) =>
+          storage.createInsight({
+            datasetId: dataset.id,
+            content: `${insight.title}: ${insight.description}`,
+            confidence: String(Math.round(insight.confidence * 100)),
+          })
+        )
+      );
+
+      res.json({
+        insights: storedInsights,
+        summary: analysis.summary,
+      });
+    } catch (error) {
+      console.error("AI analysis error:", error);
+      res.status(500).json({ error: "Failed to generate AI insights" });
+    }
+  });
+
+  // Answer a natural language query about a dataset
+  app.post("/api/datasets/:id/query", async (req, res) => {
+    try {
+      const { query } = req.body;
+      if (!query || typeof query !== "string") {
+        return res.status(400).json({ error: "Query is required" });
+      }
+
+      const dataset = await storage.getDataset(req.params.id);
+      if (!dataset) {
+        return res.status(404).json({ error: "Dataset not found" });
+      }
+
+      const result = await answerDataQuery(
+        query,
+        dataset.data as Record<string, any>[],
+        dataset.columns
+      );
+
+      res.json(result);
+    } catch (error) {
+      console.error("Query answer error:", error);
+      res.status(500).json({ error: "Failed to answer query" });
     }
   });
 
