@@ -3,8 +3,10 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import multer from "multer";
 import Papa from "papaparse";
-import { insertDatasetSchema, insertVisualizationSchema } from "@shared/schema";
+import { insertDatasetSchema, insertVisualizationSchema, insertShareSchema } from "@shared/schema";
 import { analyzeDataset, answerDataQuery } from "./openai";
+import { randomBytes } from "crypto";
+import bcrypt from "bcryptjs";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -280,6 +282,100 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Delete visualization error:", error);
       res.status(500).json({ error: "Failed to delete visualization" });
+    }
+  });
+
+  // Create a shareable link
+  app.post("/api/shares", async (req, res) => {
+    try {
+      const { datasetId, allowDownloads, requirePassword, password } = req.body;
+      
+      // Verify the dataset exists
+      const dataset = await storage.getDataset(datasetId);
+      if (!dataset) {
+        return res.status(404).json({ error: "Dataset not found" });
+      }
+
+      // Validate password requirement
+      if (requirePassword && !password) {
+        return res.status(400).json({ error: "Password is required when password protection is enabled" });
+      }
+
+      // Hash password if provided
+      const hashedPassword = password ? await bcrypt.hash(password, 10) : null;
+
+      // Generate a unique share token
+      const shareToken = randomBytes(16).toString("hex");
+
+      const sharePayload = insertShareSchema.parse({
+        datasetId,
+        shareToken,
+        allowDownloads: allowDownloads ? "true" : "false",
+        requirePassword: requirePassword ? "true" : "false",
+        password: hashedPassword,
+      });
+
+      const share = await storage.createShare(sharePayload);
+
+      res.json({
+        ...share,
+        password: undefined,
+        shareUrl: `${req.protocol}://${req.get("host")}/share/${shareToken}`,
+      });
+    } catch (error) {
+      console.error("Create share error:", error);
+      if (error instanceof Error && error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid share format" });
+      }
+      res.status(500).json({ error: "Failed to create share link" });
+    }
+  });
+
+  // Get dataset by share token
+  app.post("/api/shares/:token/verify", async (req, res) => {
+    try {
+      const share = await storage.getShareByToken(req.params.token);
+      if (!share) {
+        return res.status(404).json({ error: "Share link not found" });
+      }
+
+      // Check if password is required
+      if (share.requirePassword === "true") {
+        const { password } = req.body;
+        
+        if (!password) {
+          return res.status(401).json({ 
+            error: "Password required",
+            requirePassword: true,
+          });
+        }
+
+        if (!share.password) {
+          return res.status(500).json({ error: "Password protection misconfigured" });
+        }
+
+        const passwordValid = await bcrypt.compare(password, share.password);
+        if (!passwordValid) {
+          return res.status(401).json({ error: "Invalid password" });
+        }
+      }
+
+      const dataset = await storage.getDataset(share.datasetId);
+      if (!dataset) {
+        return res.status(404).json({ error: "Dataset not found" });
+      }
+
+      const insights = await storage.getInsightsByDataset(share.datasetId);
+
+      res.json({
+        dataset,
+        insights,
+        allowDownloads: share.allowDownloads === "true",
+        requirePassword: share.requirePassword === "true",
+      });
+    } catch (error) {
+      console.error("Verify share error:", error);
+      res.status(500).json({ error: "Failed to fetch shared data" });
     }
   });
 

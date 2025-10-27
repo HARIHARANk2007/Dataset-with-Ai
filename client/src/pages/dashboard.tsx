@@ -281,7 +281,11 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <ShareModal open={shareModalOpen} onOpenChange={setShareModalOpen} />
+      <ShareModal 
+        open={shareModalOpen} 
+        onOpenChange={setShareModalOpen}
+        datasetId={currentDataset?.id}
+      />
     </div>
   );
 }

@@ -7,6 +7,8 @@ import {
   type InsertVisualization,
   type Insight,
   type InsertInsight,
+  type Share,
+  type InsertShare,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -31,6 +33,12 @@ export interface IStorage {
   getInsight(id: string): Promise<Insight | undefined>;
   getInsightsByDataset(datasetId: string): Promise<Insight[]>;
   deleteInsight(id: string): Promise<boolean>;
+
+  createShare(share: InsertShare): Promise<Share>;
+  getShare(id: string): Promise<Share | undefined>;
+  getShareByToken(token: string): Promise<Share | undefined>;
+  getSharesByDataset(datasetId: string): Promise<Share[]>;
+  deleteShare(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -38,12 +46,14 @@ export class MemStorage implements IStorage {
   private datasets: Map<string, Dataset>;
   private visualizations: Map<string, Visualization>;
   private insights: Map<string, Insight>;
+  private shares: Map<string, Share>;
 
   constructor() {
     this.users = new Map();
     this.datasets = new Map();
     this.visualizations = new Map();
     this.insights = new Map();
+    this.shares = new Map();
   }
 
   async getUser(id: string): Promise<User | undefined> {
@@ -140,6 +150,37 @@ export class MemStorage implements IStorage {
 
   async deleteInsight(id: string): Promise<boolean> {
     return this.insights.delete(id);
+  }
+
+  async createShare(insertShare: InsertShare): Promise<Share> {
+    const id = randomUUID();
+    const share: Share = {
+      ...insertShare,
+      id,
+      createdAt: new Date(),
+    };
+    this.shares.set(id, share);
+    return share;
+  }
+
+  async getShare(id: string): Promise<Share | undefined> {
+    return this.shares.get(id);
+  }
+
+  async getShareByToken(token: string): Promise<Share | undefined> {
+    return Array.from(this.shares.values()).find(
+      (s) => s.shareToken === token
+    );
+  }
+
+  async getSharesByDataset(datasetId: string): Promise<Share[]> {
+    return Array.from(this.shares.values()).filter(
+      (s) => s.datasetId === datasetId
+    );
+  }
+
+  async deleteShare(id: string): Promise<boolean> {
+    return this.shares.delete(id);
   }
 }
 

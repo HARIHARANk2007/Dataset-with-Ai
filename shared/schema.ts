@@ -35,6 +35,16 @@ export const insights = pgTable("insights", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const shares = pgTable("shares", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  datasetId: varchar("dataset_id").notNull(),
+  shareToken: text("share_token").notNull().unique(),
+  allowDownloads: text("allow_downloads").notNull().default("true"),
+  requirePassword: text("require_password").notNull().default("false"),
+  password: text("password"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
@@ -55,6 +65,11 @@ export const insertInsightSchema = createInsertSchema(insights).omit({
   createdAt: true,
 });
 
+export const insertShareSchema = createInsertSchema(shares).omit({
+  id: true,
+  createdAt: true,
+});
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type Dataset = typeof datasets.$inferSelect;
@@ -63,3 +78,5 @@ export type Visualization = typeof visualizations.$inferSelect;
 export type InsertVisualization = z.infer<typeof insertVisualizationSchema>;
 export type Insight = typeof insights.$inferSelect;
 export type InsertInsight = z.infer<typeof insertInsightSchema>;
+export type Share = typeof shares.$inferSelect;
+export type InsertShare = z.infer<typeof insertShareSchema>;
